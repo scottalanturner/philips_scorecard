@@ -70,9 +70,6 @@ def create_test_input():
 
 def test_build_doc():
 
-    # Get the directory of the current script
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-
     # Build the full path to the file
     input_template_name = 'philips_scorecard/io/philips_scorecard_template.docx'
     ouput_template_name = 'philips_scorecard/io/updated_result.docx'
@@ -86,7 +83,7 @@ def test_build_doc():
     # Create the JSON object
     json_data = {
         "document_content": document_content_base64,
-        "form_row_id": 24
+        "form_row_id": 30
     }     
     # Convert the JSON object to a JSON string
     json_request = json.dumps(json_data, indent=4)
@@ -111,7 +108,6 @@ def test_build_doc():
 
 
 if __name__ == "__main__":
-#    test_db_con()
     parser = argparse.ArgumentParser(description="Power Automate Simulator")
     parser.add_argument("action", choices=["db_test", "create_input", "process_output", "build_doc"], help="Action to perform")
     args = parser.parse_args()
@@ -124,21 +120,3 @@ if __name__ == "__main__":
         test_convert_response()
     elif args.action == "build_doc":
         test_build_doc()
-
-
-    # Calling azure which sends back a json response, base64 encoded document
-    #response = call_azure_function(json=json_string)
-
-    # Parse the JSON response
-    #response_data = json.loads(response)
-
-    # Extract the 'content' field which is base64 encoded
-    #document_content_modified_base64 = response_data['new_document_content']
-
-    # Decode the base64 content to get the binary data
-    #document_content_modified = base64.b64decode(document_content_modified_base64)
-
-    # Save the modified document to a new file. This is done locally for testing to verify the .docx is correct
-    #with open("io/updated_result.docx", "wb") as new_file:
-    #    new_file.write(document_content_modified)
-    #print("Document saved to updated_result.docx")

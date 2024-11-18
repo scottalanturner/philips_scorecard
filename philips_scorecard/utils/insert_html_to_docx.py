@@ -124,15 +124,15 @@ def convert_html_to_docx_elements(doc, html_content):
                             elif content.name == 'ul':
                                 # Handle unordered lists within cells
                                 for li in content.find_all('li'):
-                                    # Add new paragraph for each list item
-                                    list_para = table_cell.add_paragraph(style='List Bullet')
-                                    list_para.text = li.get_text().strip()
-                            elif content.name == 'ol':
-                                # Handle ordered lists within cells
-                                for li in content.find_all('li'):
-                                    # Add new paragraph for each list item
-                                    list_para = table_cell.add_paragraph(style='List Number')
-                                    list_para.text = li.get_text().strip()
+                                    # Create a new paragraph for each list item
+                                    list_para = table_cell.add_paragraph()
+                                    # Add bullet character and text with proper spacing
+                                    run = list_para.add_run('• ')
+                                    run.font.symbol = True
+                                    list_para.add_run(li.get_text().strip())
+                                    # Add left indentation for list items
+                                    list_para.paragraph_format.left_indent = Inches(0.25)
+                                    list_para.paragraph_format.first_line_indent = Inches(-0.25)
 
                         # Apply borders only if specified
                         if any(border_prop in styles for border_prop in ['border', 'border-top', 'border-left', 'border-bottom', 'border-right']):
@@ -292,3 +292,10 @@ if __name__ == "__main__":
         print("Document saved successfully!")
     else:
         print("Error processing document.")
+
+
+def replace_placeholders_in_docx(document : Document, replacements : str) -> str:
+
+    success = update_doc_template_with_rtf(document, replacements)
+    if not success:
+        raise Exception("Error replacing placeholders in document")

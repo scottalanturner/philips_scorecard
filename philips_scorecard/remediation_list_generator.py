@@ -1,40 +1,36 @@
 from openai import AzureOpenAI
 import pandas as pd
+import azure.functions as func
 from docx import Document
+from io import BytesIO
+import json
 from typing import List, Dict
 from philips_scorecard.config.config_loader import ConfigLoader
 from philips_scorecard.templates.philips import get_findings_and_recommendations_table, get_findings_and_recommendations_row
-from philips_scorecard.utils.insert_html_to_docx import convert_html_to_docx_elements
+from philips_scorecard.utils.doc_converters import get_document, convert_doc_to_base64, convert_base64_to_excel_sheets
+from philips_scorecard.utils.insert_html_to_docx import convert_html_to_docx_elements, replace_placeholders_in_docx
 import warnings
+import logging
+
 warnings.filterwarnings('ignore', message='Data Validation extension is not supported and will be removed', category=UserWarning)
 
-# Rest of your imports and code follows...
 class FindingsDocumentGenerator:
     def __init__(self, openai_client: AzureOpenAI):
         self.openai_client = openai_client
         
-    def clean_excel_data(self, excel_file_path: str) -> pd.DataFrame:
+    def clean_excel_data(self, sheets: dict) -> pd.DataFrame:
         """Clean and filter Excel data to remove empty rows."""
-
-        sheets = pd.read_excel(excel_file_path, sheet_name=None)
-        # Iterate over each sheet
         df_all = pd.DataFrame()
 
-        # **Be aware in the original Excel file every sheet has hidden cells. So watch out for what is selected, because it could pick up
-        # caculated fields that aren't shown. It will also pick up other sheets which don't match the Floor sheets.
         for sheet_name, df in sheets.items():
             if 'Finding Details' in df.columns:
-                # Fill NaN values in Floor column (to handle merged cells)
-               # Filter rows where the length of 'Finding Details' is greater than 10
                 df_failures = df[df['Finding Details'].str.len() > 10]
                 df_failures.loc[:, 'Floor'] = sheet_name
-                # Concatenate the filtered DataFrame to the main DataFrame
                 df_all = pd.concat([df_all, df_failures], ignore_index=True)
 
         return df_all
     
     async def generate_finding_description(self, findings: pd.DataFrame) -> str:
-        # Group findings by type
         findings_summary = findings['Failure'].value_counts().to_dict()
         
         prompt = f"""
@@ -61,69 +57,8 @@ class FindingsDocumentGenerator:
         
         return response.choices[0].message.content
 
-
-
-
-    def create_document(self, df: pd.DataFrame, analysis: str) -> Document:
-        doc = Document()
-        
-        # Create table with 2 columns
-        table = doc.add_table(rows=1, cols=2)
-        table.style = 'Table Grid'
-        
-        # Add header row
-        header_cells = table.rows[0].cells
-        header_cells[0].text = 'Finding'
-        header_cells[1].text = 'Remediation'
-
-        floor_names = df['Floor'].unique()
-
-        for floor in floor_names:
-            #df_floor = df[df['Floor'] == floor]
-            findings = df[df['Floor'] == floor]['Finding Details']
-            remediations = df[df['Floor'] == floor]['Remediation Detail']
-            new_row = table.add_row().cells
-
-            findings_text = new_row[0].paragraphs[0]
-            findings_text.add_run(floor + '\n\n')
-            remediation_text = new_row[1].paragraphs[0]
-            remediation_text.add_run(floor + '\n\n')
-
-            for finding in findings:
-                findings_text.add_run('• ' + finding + '\n')
-
-            for remediation in remediations:
-                remediation_text.add_run('• ' + remediation + '\n')    
-
-        # Add data rows
-      #  for _, row in df.iterrows():
-     #       floor = df['Floor']
-        #    data_row = table.add_row().cells
-        #    data_row[0].text = f"F{row['Finding Details']}"
-        #    data_row[1].text = f"{row['Remediation Detail']}"
-            # Add findings with bullets
-    #        findings_row = table.add_row().cells
-   #         findings_text = findings_row[0].paragraphs[0]
-  #          for finding in df[df['Floor'] == floor]['Finding Details']:
- #               findings_text.add_run('• ' + finding + '\n')
-           
-            # Add remediations with bullets
- #           remediation_text = findings_row[1].paragraphs[0]
-#            for remediation in df[df['Floor'] == floor]['Remediation Detail']:
-#                remediation_text.add_run('• ' + remediation + '\n')
-
-
-        # Add AI analysis section
-        doc.add_heading('Technical Analysis', level=1)
-        doc.add_paragraph(analysis)
-        
-        return doc
-
-
-    def create_output_html_table(self, df: pd.DataFrame, analysis: str) -> str:
-
+    def create_output_html_table(self, df: pd.DataFrame) -> str:
         table_html = get_findings_and_recommendations_table(col_width='50', col_width2='50')
-
         floor_names = df['Floor'].unique()
 
         for floor in floor_names:
@@ -143,70 +78,62 @@ class FindingsDocumentGenerator:
             table_html += get_findings_and_recommendations_row(findings_list, remediation_list)
 
         table_html += '</table>'
-
         return table_html
     
-async def generate_findings_report(excel_file_path: str, output_doc_path: str) -> str:
-    # Initialize config loader
-    config_loader = ConfigLoader()
+    async def generate_findings_report(self, df_remediations: pd.DataFrame) -> str:
+        analysis = await self.generate_finding_description(df_remediations)
+        return analysis
 
-    # Load API configuration
-    api_config = config_loader.load_api_config()
+    async def build_docx_output_in_json_format(self, json_data: str) -> str:
+        json_dict = json.loads(json_data)
+        docx_output_template_content_base64 = json_dict['output_template_content']
+        
+        excel_input_content_base64 = json_dict['excel_content']
+        excel_sheets = convert_base64_to_excel_sheets(excel_input_content_base64)
+        
+        df_remediations = self.clean_excel_data(excel_sheets)
+        remediation_html_table = self.create_output_html_table(df_remediations)
+        llm_analysis = await self.generate_findings_report(df_remediations)
 
-    # Initialize OpenAI client
-    openai_client = AzureOpenAI(
-        api_key=api_config.api_key,
-        api_version=api_config.api_version,
-        azure_endpoint=api_config.azure_endpoint
-    )
-    
-    # Initialize generator
-    generator = FindingsDocumentGenerator(openai_client)
+        document = get_document(docx_output_template_content_base64)
 
-    # Load Excel file
-    df_remediations = generator.clean_excel_data(excel_file_path)
-    # Analyze findings and generate commentary
-    analysis = await generator.generate_finding_description(df_remediations)
-    #analysis = ''
+        html_sections = {
+            'remediation_table': remediation_html_table,
+            # wrap in <p> tags so html to docx conversion will work
+            'remediation_ai_report': f'<p>{llm_analysis}</p>'
+        }
+        replace_placeholders_in_docx(document, html_sections)
 
-    html = generator.create_output_html_table(df_remediations, analysis)
+        new_content = convert_doc_to_base64(document)
 
-    # Convert HTML to docx elements
-    doc = Document()
-    elements = convert_html_to_docx_elements(doc, html)
+        response_data = {
+            "new_document_content": new_content
+        }
+        
+        return json.dumps(response_data)
 
-    # Add table to document
-    doc._element.body.append(elements[0]._element)
+    async def process_request(self, req: func.HttpRequest) -> func.HttpResponse:
+        logging.info('Python HTTP trigger function processed a request.')
 
-    # Add AI analysis section
-    doc.add_heading('Technical Analysis', level=1)
-    doc.add_paragraph(analysis)
+        try:
+            json_data = req.get_json()
+        except ValueError:
+            return func.HttpResponse(
+                "Invalid JSON",
+                status_code=400
+            )    
 
-    # Generate document
-    #doc = generator.create_document(df_remediations, analysis)
-    
-    # Save document
-    doc.save(output_doc_path)
-    
-    return output_doc_path
+        if 'excel_content' not in json_data or 'output_template_content' not in json_data:
+            return func.HttpResponse(
+                "Missing required keys: 'excel_content' and/or 'output_template_content'",
+                status_code=400
+            )
 
-# Example of generated content:
-"""
-Finding: RSSI and SNR below threshold
+        json_request = json.dumps(json_data, indent=4)
+        json_response = await self.build_docx_output_in_json_format(json_request)
 
-A signal strength and signal-to-noise ratio issue was identified across multiple patient rooms in the facility. The finding affects five patient rooms (200 through 204), all showing RSSI and SNR measurements below acceptable thresholds. To remediate this issue, new access points (AP-01 through AP-05) will be installed in each affected room to improve wireless coverage and signal quality. This enhancement will ensure reliable wireless connectivity for medical devices and patient care systems in these areas.
-
-Affected Locations:
-• in patient room 200
-• in patient room 201
-• in patient room 202
-• in patient room 203
-• in patient room 204
-
-Remediation Steps:
-• Add NEW Access Point AP-01in patient room 200
-• Add NEW Access Point AP-02in patient room 201
-• Add NEW Access Point AP-03in patient room 202
-• Add NEW Access Point AP-04in patient room 203
-• Add NEW Access Point AP-05in patient room 204
-"""
+        return func.HttpResponse(
+            json_response,
+            mimetype="application/json",
+            status_code=200
+        )

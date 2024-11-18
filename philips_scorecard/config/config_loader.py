@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from dataclasses import dataclass
+from openai import AzureOpenAI
 
 @dataclass
 class DatabaseConfig:
@@ -102,3 +103,17 @@ class ConfigLoader:
             )
         except Exception as e:
             raise ConfigurationError(f"Error loading API configuration: {e}")
+        
+    def initialize_openai_client(self) -> AzureOpenAI:
+        '''
+        Initialize the OpenAI client
+        This is a bit redundant at the momement.
+        '''
+        config_loader = ConfigLoader()
+        api_config = config_loader.load_api_config()
+
+        return AzureOpenAI(
+            api_key=api_config.api_key,
+            api_version=api_config.api_version,
+            azure_endpoint=api_config.azure_endpoint
+        )       

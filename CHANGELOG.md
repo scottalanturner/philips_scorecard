@@ -2,10 +2,25 @@
 
 ## [1.0.2] - 2024-11-15
 
-### Changed
+- Pass in Excel + word template
+- Pass back word output
+
+### Added
 - Added 2nd Azure function for remediation formatting
 - Added processing of Excel remediation spreadsheet to word doc
 - Added OpenAI access
+
+### Changed
+- Extensive UI changes in MS Form. Removed several N/A options in radio selections (not in the codebase itself)
+- Corrected rules logic to follow Tom's guidelines
+- DB: dropped philips_form_submission.bp_5_2_justified
+- DB: set override_quid = '' where rule_id = bp_5_2
+
+## Removed
+- Dropped requirement bp_5_2_justified
+
+### Fixed
+- philips_document_template.docx Section 10 subheader changed to: Verify correct operations of WLAN Controller and infrastructure support
 
 ## [1.0.1] - 2024-11-10
 

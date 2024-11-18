@@ -1,14 +1,13 @@
-import base64
 import json
 import pandas as pd
 import logging
 import azure.functions as func
-from docx import Document
-from io import BytesIO
-from philips_scorecard.utils.insert_html_to_docx import update_doc_template_with_rtf
+from philips_scorecard.utils.doc_converters import convert_doc_to_base64
+from philips_scorecard.utils.doc_converters import get_document
 from philips_scorecard.templates import philips
 from philips_scorecard.config.config_loader import ConfigLoader
 from philips_scorecard.database.azure_client import AzureClientMSSQL
+from philips_scorecard.utils.insert_html_to_docx import replace_placeholders_in_docx
 
 
 def load_rules_data():
@@ -103,35 +102,34 @@ def process_form_data(form_data_df, rules_df):
     for _, rule in rules_df.iterrows():
         rule_id = rule['rule_id']  # Already lowercase from load_rules_data
         
-        # Get the answer from form data DataFrame
-        if rule_id in form_data_df.columns:
-            answer = form_data_df[rule_id].iloc[0]  # Get first row's value
-        else:
+        # Skip if rule_id is not in form data
+        if rule_id not in form_data_df.columns:
             continue
+            
+        # Get the answer and normalize to lowercase string
+        answer = form_data_df[rule_id].iloc[0]  # Get first row's value
+        answer_lower = str(answer).lower()
             
         # Get the justification field for this rule
         justification_key = f"{rule_id}_justified"
         has_justification = (justification_key in form_data_df.columns and 
-                            str(form_data_df[justification_key].iloc[0]).lower() == 'yes')
+                           str(form_data_df[justification_key].iloc[0]).lower() == 'yes')
 
-        # Determine if requirement is met based on the complex rules
-        if str(answer).lower() == 'yes': # form answer is Yes
-            if rule['on_yes'] == 'PASS':
-                meets_requirements = True
-            elif rule['on_yes'] == 'FAIL':
-                meets_requirements = False
-            # override if justification is provided
-            if not meets_requirements and has_justification:
-                meets_requirements = True
-        elif str(answer).lower() == 'no':  # form answer is No
-            if rule['on_no'] == 'PASS':
-                meets_requirements = True
-            elif rule['on_no'] == 'FAIL':
-                meets_requirements = False
-            # override if justification is provided
-            if not meets_requirements and has_justification:
-                meets_requirements = True
-        else: # form answer is n/a
+        # Determine if requirement is met using correct logic structure
+        if answer_lower == 'yes':
+            # For YES answers, first check justification
+            if justification_key in form_data_df.columns:
+                # If justification column exists, pass only if justified
+                meets_requirements = has_justification
+            else:
+                # If no justification column, use the rule's on_yes value
+                meets_requirements = rule['on_yes'] == 'PASS'
+                
+        elif answer_lower == 'no':
+            # NO answers are simple pass/fail based on rule, no justification considered
+            meets_requirements = rule['on_no'] == 'PASS'
+            
+        else:  # handle n/a or any other answers
             meets_requirements = True
 
         # Convert boolean to 'Yes'/'No' string
@@ -152,7 +150,7 @@ def process_form_data(form_data_df, rules_df):
     
     return results
 
-def build_report_sections(results):
+def build_report_sections2(results):
     """
     Build report sections based on processed results.
     """
@@ -199,32 +197,100 @@ def build_report_sections(results):
 
     return sections
 
+
+def get_philips_sections(results):
+    """
+    Build report sections based on processed results.
+    """
+    sections = {}
+    
+    # Group results by category (bp_section in the rules table, such as bp1, bp2, etc.)
+    category = 'bp_philips'
+    category_results = [r for r in results if r['category'] == category]
+    
+    # Start with table template
+    html_content_requirement_results = philips.get_table_template()
+    html_content_findings_table = philips.get_findings_and_recommendations_table()
+    
+    # Add rows for each result
+    for result in category_results:
+        bg_color = philips.GREEN if result['meets_requirements'] == 'Yes' else philips.RED
+        html_content_requirement_results += philips.get_row_template(bg_color, result)
+
+        # Recommendations are only shown if the requirements do not pass
+        if result['meets_requirements'] != 'Yes':
+            html_content_findings_table += philips.get_findings_and_recommendations_row(result['findings'], 
+                                                                                    result['recommendations']
+                                                                                    )
+            
+    html_content_requirement_results += "</table>"
+    html_content_findings_table += "</table>"
+    
+    # Store in sections dictionary
+    sections[category] = html_content_requirement_results
+
+    # Add progress bar
+    total_results = len(category_results)
+    passing_results = sum(1 for r in category_results if r['meets_requirements'] == 'Yes')
+
+    placeholder_findings = f"{category}_findings"
+    # if there are any failing results, add findings and recommendations table
+    if (passing_results != total_results):
+        sections[placeholder_findings] = html_content_findings_table
+    else:
+        sections[placeholder_findings] = ""
+
+    return sections
+
+def get_bp_sections(results):
+    """
+    Build report sections based on processed results.
+    """
+    sections = {}
+
+    # global table for last page
+    html_content_findings_table = philips.get_findings_and_recommendations_table()
+    # Extract unique categories from results
+    categories = set(result['category'] for result in results)
+
+    for category in categories:
+        if category == 'bp_philips':
+            continue
+        
+        # section table for every category/best practice
+        html_content_requirement_results = philips.get_table_template()
+        group_results = [result for result in results if result['category'] == category]
+
+        for result in group_results:
+            bg_color = philips.GREEN if result['meets_requirements'] == 'Yes' else philips.RED
+            html_content_requirement_results += philips.get_row_template(bg_color, result)
+
+            # Recommendations are only shown if the requirements do not pass
+            if result['meets_requirements'] != 'Yes':
+                html_content_findings_table += philips.get_findings_and_recommendations_row(result['findings'], 
+                                                                                        result['recommendations']
+                                                                                        )
+            
+        html_content_requirement_results += "</table>"
+        # Store in sections dictionary
+        sections[category] = html_content_requirement_results
+
+        # Add progress bar
+        total_results = len(group_results)
+        passing_results = sum(1 for r in group_results if r['meets_requirements'] == 'Yes')
+        html_content_progress_bar = philips.get_progress_bar_table(passing_results, total_results)
+        placeholder_pbar = f"{category}_progressbar"
+        sections[placeholder_pbar] = html_content_progress_bar    
+    
+    html_content_findings_table += "</table>"
+
+    # *** Currently if there are no findings, the table would just have the header
+
+    sections['bp_combined_findings'] = html_content_findings_table
+
+    return sections
+
 # Replace placeholders in the document
-def replace_placeholders_in_docx(document : Document, replacements : str) -> str:
-
-    success = update_doc_template_with_rtf(document, replacements)
-    if not success:
-        raise Exception("Error replacing placeholders in document")
-    
-def convert_doc_to_base64(document : Document) -> str:
-    # Save updated document to a BytesIO buffer
-    output = BytesIO()
-    document.save(output)
-    output.seek(0)
-    
-    # Encode modified document to base64. This would return in the HTTP request normally
-    content = base64.b64encode(output.read()).decode("utf-8")
-
-    return content
-
-def get_document(document_content_base64):
-    # The base64 content of the Word document is transmitted in the HTTP Post
-    # It then has to be decoded, and then the placeholders can be replaced
-    document_content = base64.b64decode(document_content_base64)
-    document = Document(BytesIO(document_content))
-    return document
-
-
 def build_scorecard(json_data: str) -> str:
     # Parse the JSON string into a dictionary
     json_dict = json.loads(json_data)
@@ -244,8 +310,10 @@ def build_scorecard(json_data: str) -> str:
     # Process form data against rules
     results = process_form_data(form_df, rules_df)
     # Get the HTML tables that will be used in the template
-    html_sections = build_report_sections(results)
-
+    html_sections = {
+        **get_philips_sections(results),
+        **get_bp_sections(results)
+    }
     replace_placeholders_in_docx(document, html_sections)
 
     new_content = convert_doc_to_base64(document)

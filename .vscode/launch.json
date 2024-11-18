@@ -2,6 +2,16 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "build_doc"
+            ]
+        },
+        {
             "name": "Attach to Python Functions",
             "type": "debugpy",
             "request": "attach",
@@ -13,4 +23,3 @@
         }
     ]
 }
-
