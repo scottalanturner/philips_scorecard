@@ -1,5 +1,6 @@
 # Changelog
 
+
 ## [1.0.2] - 2024-11-15
 
 - Pass in Excel + word template
@@ -32,3 +33,17 @@
 - Findings/Recommendations are shown after the progress bar, for only those things that fail
 - Put each section on it's own page
 - Added best practice titles, and subheadings
+
+## [1.0.4] - 2024-11-20
+
+### Changed
+- Refactored scorecard generation code into a proper class structure
+- Improved code organization and maintainability
+- Separated scorecard generation logic from Azure Function entry point
+
+### Technical Improvements
+- Introduced new `ScorecardGenerator` class to encapsulate all scorecard building logic
+- Improved database connection handling through class initialization
+- Reduced code duplication in database access
+- Better error handling and type hints
+- Cleaner separation of concerns between modules

@@ -89,7 +89,7 @@ def test_build_doc():
     json_request = json.dumps(json_data, indent=4)
 
     # Calling azure which sends back a json response, base64 encoded document
-    json_response = build_scorecard(json_request)
+    json_response = ScorecardGenerator().build_scorecard(json_request)
 
     # Parse the JSON response
     response_data = json.loads(json_response)
