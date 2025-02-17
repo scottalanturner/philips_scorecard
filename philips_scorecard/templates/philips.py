@@ -35,7 +35,7 @@ def get_row_template(bgcolor: str, data: dict) -> str:
     #<b>Recommendations: </b>{data['recommendations']}    
     return row_template
 
-def get_findings_and_recommendations_table(col_width: str = '60', col_width2: str = '40') -> str:
+def get_findings_and_recommendations_table(col_width: str = '50', col_width2: str = '50') -> str:
     return f"""
         <table style="padding:8px; width:100%; border-collapse:collapse; border:1px solid #c1c6cc;">
             <colgroup>

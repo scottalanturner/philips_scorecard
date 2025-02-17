@@ -57,7 +57,25 @@ class ScorecardGenerator:
             has_justification = (justification_key in form_data_df.columns and 
                                str(form_data_df[justification_key].iloc[0]).lower() == 'yes')
 
-            if answer_lower == 'yes':
+            # This was just a crap hack to get these rules to work temporarily
+            # until the next round of changes are implemented
+            if rule['rule_id'] == 'bp_4_3':
+                if answer_lower == 'yes':
+                    meets_requirements = has_justification
+                else: # answser is no, no need for justification
+                    meets_requirements = True
+            elif rule['rule_id'] == 'bp_4_4':
+                if answer_lower == 'yes':
+                    meets_requirements = False
+                else: # answer is no
+                    meets_requirements = True
+            elif rule['rule_id'] == 'bp_4_5':
+                if answer_lower == 'yes':
+                    meets_requirements = True
+                else: # answer is no, use justification
+                    meets_requirements = has_justification
+
+            elif answer_lower == 'yes':
                 if justification_key in form_data_df.columns:
                     meets_requirements = has_justification
                 else:
