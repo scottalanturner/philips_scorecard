@@ -74,6 +74,18 @@ class ScorecardGenerator:
                     meets_requirements = True
                 else: # answer is no, use justification
                     meets_requirements = has_justification
+            # Are All SSID in the WLAN being broadcast?
+            elif rule['rule_id'] == 'bp_8_3':
+                if answer_lower == 'yes':
+                    meets_requirements = True
+                else: # answer is no, use justification
+                    meets_requirements = has_justification
+            # Is AES/CCMP encryption in use on all SSIDs?
+            elif rule['rule_id'] == 'bp_9_1':
+                if answer_lower == 'yes':
+                    meets_requirements = True
+                else:
+                    meets_requirements = has_justification
 
             elif answer_lower == 'yes':
                 if justification_key in form_data_df.columns:
